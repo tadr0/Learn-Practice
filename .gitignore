@@ -1,0 +1,9 @@
+# caches and compiled source#
+###################
+*.cache
+*.pyc
+__pycache__
+
+# OS generated files #
+######################
+.directory
