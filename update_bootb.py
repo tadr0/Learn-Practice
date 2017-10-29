@@ -43,7 +43,6 @@ class DiskPart(object):
         s = []
         s += ['  H']
         s += [self.dev if self.dev else ' '*9]
-#        s += [self.ptype if self else ' '*4]
         s += [self.ptype[:4] if self.ptype else ' '*4]
         s += [self.uuid[:8] if self.uuid else ' '*8]
         s += [self.mount_point if self.mount_point else 'None']
@@ -194,7 +193,6 @@ def find_source_disk(partition_table):
 
 
 def find_dest_disk(potentials):
-    print('find_dest_disk:', len(potentials))
     # potentials = all_partitions.values()  # [DiskPart] list
     # [DiskPart] list
     efi_candidates = []  # [DiskPart] list
@@ -214,7 +212,6 @@ def find_dest_disk(potentials):
         for p in potentials:
             if p.ptype != 'vfat' and efi_disk in p.dev:
                 root_candidates += [(efi_part, partition)]
-    print('find_dest_disk: count =', len(root_candidates))
     if len(root_candidates) == 1:
         return {'/boot/efi': efi_part[0], '/': partition[0]}
     elif len(root_candidates) == 0:
@@ -225,15 +222,16 @@ def find_dest_disk(potentials):
         raise Exception('wtf in find_dest_disk')
 
 
-if __name__ == '__main__':
-    part_table = PartitionTable()
+partition_table = PartitionTable()
 
-    print(part_table)
+if __name__ == '__main__':
+
+    print(partition_table)
 
     # print(find_source_disk(part_table))
-    source_disk = find_source_disk(part_table)
+    source_disk = find_source_disk(partition_table)
     # pprint(source_disk)
-    dest_disk = part_table.get_blkids().values()
+    dest_disk = partition_table.get_blkids().values()
     # print(dest_disk)
 
     pass

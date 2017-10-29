@@ -9,20 +9,21 @@ Created on Tue Oct 24 13:07:58 2017
 # usage: run pytest from top of repo with no parameters eg.
 # ~/src/Learn-Practice$ pytest
 
-import os
+import re
+# import os
 import subprocess
 # import sys
-import uuid
-from pprint import pprint
+# from pprint import pprint
 
 
 from update_bootb import (
-        DiskPart, PartitionTable,
-        find_source_disk, find_dest_disk)
-
+        DiskPart,
+        partition_table,  # <-- live when imported
+        find_source_disk,
+        find_dest_disk)
 
 def test_get_proc_mounts():
-    mounts = get_proc_mounts()
+    mounts = partition_table.mounts
     # some sanity checks we can get independently from get_blkids
     assert '/' in mounts.values()
     assert '/boot/efi' in mounts.values()
@@ -31,24 +32,38 @@ def test_get_proc_mounts():
     assert mounts['/dev/sda2'] == '/'
 
 
-def test_get_blkids(part_table):
-    sources = part_table.partitions
-    # independent
+def test_proc_partitions():
+    print(partition_table.partitions.keys())
+    """ check that partion_table returns same info as /proc/paretitions """
+
+    # # independent tests
+    # tests that work as non-root user
+    # https://stackoverflow.com/questions/13857856/split-byte-string-into-lines
+    #
+    # get independent list of partitions from kernel
+    re_part = re.compile(b' (sd[a-z][1-9])$')
     result = subprocess.run(
+        'cat /proc/partitions',
         stdout=subprocess.PIPE,
         shell=True)
     result.check_returncode()
-    response = result.stdout.decode("utf-8")
-    print(sources.keys())
-    for part in sources.keys():
-        print(part)
-        part = part[5:9]  # strip off /dev/
-        assert part in response
-    # tests that need apriori knowledge
+    lines_out = result.stdout.split(b'\n')  # .decode("utf-8")
+    proc_parts = []
+    for line in lines_out:
+        if re_part.search(line):
+            proc_parts += [re_part.search(line).group(1).decode('utf8')]
+    print(proc_parts)
+    # Are patitions from proc_parts in partition_table
+    for d in proc_parts:
+        test = f'/dev/{d}'
+        assert test in [v.dev for i, v in partition_table.partitions.items()]
+    for key, value in partition_table.partitions.items():
+        assert key == value.dev
+    # more tests
 
 
 def test_find_source_disk():
-    mounts = get_proc_mounts()
+    mounts = partition_table.mounts
     # tests that need apriori knowledge
     assert mounts['/dev/sda1'] == '/boot/efi'
     assert mounts['/dev/sda2'] == '/'
@@ -112,14 +127,16 @@ def test_find_dest_disk():
                 pass
 
 
-#def test_mount_point_new():
-#    """ check_mount_point should make the dir if it's not there
-#        Gamble on the non-existence of a weird directory name. """
-#    dir_name = f'/tmp/dir_{uuid.uuid1()}'
-#    check_mount_point(dir_name)
-#    assert os.path.isdir(dir_name)
-#    os.rmdir(dir_name)  # context manager here ?
+# some test that partitions are outomatically mounted for dest
+
+
+#def test_find_source_disk():
+#    source = find_source_disk(partition_table)
+#    
+#    print(source)
+
+
 
 
 if __name__ == '__main__':
-    test_find_dest_disk()
+    test_find_source_disk()
