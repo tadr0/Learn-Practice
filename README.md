@@ -5,4 +5,4 @@ I decided it was time to learn/have a better environment.
 
 ## WARNING!
 
-Nobody can use this we whether or not they want to.
+This is still useless for practical purposes
