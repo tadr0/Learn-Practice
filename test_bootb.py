@@ -117,7 +117,6 @@ def test_find_dest_disk():
 
     for case in test_casess:
         potentials = [disk_states[idx] for idx in case[2]]
-        # print(potentials)
         try:
             dest = find_dest_disk(potentials)
             assert dest['/boot/efi'] == f'/dev/{case[0]}'
@@ -130,12 +129,11 @@ def test_find_dest_disk():
 # some test that partitions are outomatically mounted for dest
 
 
-#def test_find_source_disk():
-#    source = find_source_disk(partition_table)
-#    
-#    print(source)
+def test_find_source_disk():
+    source = find_source_disk(partition_table)
 
-
+    assert source['/'].dev == '/dev/sda2'
+    assert source['/boot/efi'].dev == '/dev/sda1'
 
 
 if __name__ == '__main__':
