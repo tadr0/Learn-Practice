@@ -16,7 +16,7 @@ import subprocess
 # from pprint import pprint
 
 
-from update_bootb import (
+from partitions import (
         DiskPart,
         partition_table,  # <-- live when imported
         find_source_disk,
@@ -60,13 +60,6 @@ def test_proc_partitions():
     for key, value in partition_table.partitions.items():
         assert key == value.dev
     # more tests
-
-
-def test_find_source_disk():
-    mounts = partition_table.mounts
-    # tests that need apriori knowledge
-    assert mounts['/dev/sda1'] == '/boot/efi'
-    assert mounts['/dev/sda2'] == '/'
 
 
 def test_find_dest_disk():
