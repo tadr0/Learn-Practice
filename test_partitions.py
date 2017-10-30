@@ -20,22 +20,20 @@ import subprocess
 
 from partitions import (
         DiskPart,
-        partition_table,  # <-- live when imported
-        find_source_disk,
-        find_dest_disk)
+        partition_table)  # <-- live when imported
 
 
-def test_get_proc_mounts():
+def test_mounts():
     mounts = partition_table.mounts
     # some sanity checks we can get independently from get_blkids
-    assert '/' in mounts.values()
-    assert '/boot/efi' in mounts.values()
+    assert '/' in mounts.keys()
+    assert '/boot/efi' in mounts.keys()
     # tests that need apriori knowledge (not generally useful but fine for me)
-    assert mounts['/dev/sda1'] == '/boot/efi'
-    assert mounts['/dev/sda2'] == '/'
+    assert mounts['/boot/efi'].dev == '/dev/sda1'
+    assert mounts['/'].dev == '/dev/sda2'
 
 
-def test_proc_partitions():
+def test_partitions():
     """ check that partion_table returns same info as /proc/paretitions """
 
     # # independent tests
@@ -43,7 +41,7 @@ def test_proc_partitions():
     # https://stackoverflow.com/questions/13857856/split-byte-string-into-lines
     #
     # get independent list of partitions from kernel
-    # print(partition_table.partitions.keys())
+
     re_part = re.compile(b' (sd[a-z][1-9])$')
     result = subprocess.run(
         'cat /proc/partitions',
@@ -93,6 +91,7 @@ def test_find_dest_disk():
         # efi mount, root mount,  list [diskpartition_ptype_mount]
         ('sdb1', 'sdb2', 'sda1_v_b sda2_e_r sdb1_v_u sdb2_e_u'.split()),
         ('sdb1', 'sdb2', 'sda1_v_b sda2_e_r sdb1_v_u sdb2_e_m'.split()),
+        ('sdb1', 'sdb2', 'sda1_v_b sda2_e_r sdb1_v_m sdb2_e_u'.split()),
 
         # from usb back to HDD
         ('sda1', 'sda2', 'sdb1_v_b sdb2_e_r sda1_v_u sda2_e_m'.split()),
@@ -100,13 +99,15 @@ def test_find_dest_disk():
         # list order shouldn't matter
         ('sda1', 'sda2', 'sda1_v_b sda2_e_r sdb1_v_u sdb2_e_m'.split()),
 
+        # force not found
+        (None, None, 'sda1_v_b sda2_e_r'.split()),
         # and more later
         ]
 
     for case in test_casess:
         potentials = [disk_states[idx] for idx in case[2]]
         try:
-            dest = find_dest_disk(potentials)
+            dest = partition_table.find_dest_disk(potentials)
             assert dest['/boot/efi'] == f'/dev/{case[0]}'
             assert dest['/'] == f'/dev/{case[1]}'
         except:
@@ -118,11 +119,12 @@ def test_find_dest_disk():
 
 
 def test_find_source_disk():
-    source = find_source_disk(partition_table)
+    source: Dict[str, DiskPart] = partition_table.find_source_disk()
 
-    assert source['/'] == '/dev/sda2'
-    assert source['/boot/efi'] == '/dev/sda1'
+    assert source['/'].dev == '/dev/sda2'
+    assert source['/boot/efi'].dev == '/dev/sda1'
 
 
 if __name__ == '__main__':
     test_find_source_disk()
+    test_get_proc_mounts()
