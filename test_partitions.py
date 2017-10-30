@@ -9,11 +9,13 @@ Created on Tue Oct 24 13:07:58 2017
 # usage: run pytest from top of repo with no parameters eg.
 # ~/src/Learn-Practice$ pytest
 
+
 import re
 # import os
 import subprocess
 # import sys
 # from pprint import pprint
+# from typing import Dict
 
 
 from partitions import (
@@ -21,6 +23,7 @@ from partitions import (
         partition_table,  # <-- live when imported
         find_source_disk,
         find_dest_disk)
+
 
 def test_get_proc_mounts():
     mounts = partition_table.mounts
@@ -33,7 +36,6 @@ def test_get_proc_mounts():
 
 
 def test_proc_partitions():
-    print(partition_table.partitions.keys())
     """ check that partion_table returns same info as /proc/paretitions """
 
     # # independent tests
@@ -41,6 +43,7 @@ def test_proc_partitions():
     # https://stackoverflow.com/questions/13857856/split-byte-string-into-lines
     #
     # get independent list of partitions from kernel
+    # print(partition_table.partitions.keys())
     re_part = re.compile(b' (sd[a-z][1-9])$')
     result = subprocess.run(
         'cat /proc/partitions',
@@ -52,7 +55,7 @@ def test_proc_partitions():
     for line in lines_out:
         if re_part.search(line):
             proc_parts += [re_part.search(line).group(1).decode('utf8')]
-    print(proc_parts)
+
     # Are patitions from proc_parts in partition_table
     for d in proc_parts:
         test = f'/dev/{d}'
@@ -63,18 +66,10 @@ def test_proc_partitions():
 
 
 def test_find_dest_disk():
-    # most typical
-    def any_part(name, ptype, mount_point, fake_data):
-        return DiskPart(
-            dev=None,
-            uuid=None,
-            ptype=None,
-            puuid=None,
-            mount_point=None)
 
     # make all the combinations without having to check them by hand
     # partitions = {}
-    disk_states = {}
+    disk_states: Dict[str, DiskPart] = {}
     for name in ['sda', 'sdb', 'sdc']:
         n = name[2]
         for part_number in ['1', '2']:
@@ -125,8 +120,8 @@ def test_find_dest_disk():
 def test_find_source_disk():
     source = find_source_disk(partition_table)
 
-    assert source['/'].dev == '/dev/sda2'
-    assert source['/boot/efi'].dev == '/dev/sda1'
+    assert source['/'] == '/dev/sda2'
+    assert source['/boot/efi'] == '/dev/sda1'
 
 
 if __name__ == '__main__':
