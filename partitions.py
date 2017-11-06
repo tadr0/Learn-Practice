@@ -34,24 +34,25 @@ class DiskPart(object):
 
         :rtype: DiskPart
         """
+
         self.dev = dev
-        self.disk = dev[5:8],
-        self.part_num = dev[8],
+        self.disk = dev[5:8]
+        self.part_num = dev[8]
         self.uuid = uuid
         self.ptype = ptype
         self.puuid = puuid
         self.mount_point = mount_point
         self.fake_data = fake_data
 
-#    def __str__(self) -> str:
-#        s = ['  H']
-#        s += [self.dev if self.dev else ' '*9]
-#        s += [self.ptype[:4] if self.ptype else ' '*4]
-#        s += [self.uuid[:8] if self.uuid else ' '*8]
-#        s += [self.mount_point if self.mount_point else 'None']
-#        rstr = str(' '.join(s))
-#        return rstr
-#
+    def __str__(self) -> str:
+        s = ['  H']
+        s += [self.dev if self.dev else ' '*9]
+        s += [self.ptype[:4] if self.ptype else ' '*4]
+        s += [self.uuid[:8] if self.uuid else ' '*8]
+        s += [self.mount_point if self.mount_point else 'None']
+        rstr = str(' '.join(s))
+        return rstr
+
 #    def __repr__(self):
 #        self.__str__()  # cheat
 
@@ -62,21 +63,31 @@ class PartitionTable(object):
         really info about table and maybe setup for MagicMock?
     """
 
-    def __init__(self):
-        # one to one mapping /dev/sd??  ->  partition
-        self.partitions: Dict[str, DiskPart] = {}
-        self.update_blkids()
-        # potentially many to one: 1 partition can be mounted multiple times
-        self.mounts: Dict[str, DiskPart] = {}
-        self.update_mounts()
+    def __init__(
+            self,
+            partitions=None,
+            mounts=None) -> None:
+        """ If testing use external config else self config. """
 
-#    def __str__(self):
-#        s = ['Partition Table:']
-#        for name, part in self.partitions.items():
-#            s += [part.__str__()]
-#        rstr = str('\n'.join(s))
-#        return rstr
-#
+        # one to one mapping /dev/sd??  ->  partition
+        if not partitions:
+            self.partitions: Dict[str, DiskPart] = {}  # by dev (/dev/sdxx)
+            self.update_blkids()
+        # potentially many to one: 1 partition can be mounted multiple times
+        if not mounts:
+            self.mounts: Dict[str, DiskPart] = {}  # by mount_point
+            self.update_mounts()
+
+        self.sources: Dict[str, DiskPart] = {}  # by mount_point
+        self.dests: Dict[str, DiskPart] = {}  # by mout_point
+
+    def __str__(self):
+        s = ['Partition Table:']
+        for name, part in self.partitions.items():
+            s += [part.__str__()]
+        rstr = str('\n'.join(s))
+        return rstr
+
 #    def __repr__(self):
 #        self.__str__()
 
@@ -84,7 +95,7 @@ class PartitionTable(object):
         pass
 
     def update_blkids(self) -> None:
-        """ read partition from os using blkid
+        """ Read partitions from os using blkid.
 
             This seems to work fine for non-root user, provided that you poke
             it first with a 'sudo blkid' at the command line once. Hmm ...
@@ -114,10 +125,11 @@ class PartitionTable(object):
         with open('/proc/mounts') as f:
             lines = f.readlines()
         for line in lines:
-            if '/dev/' in line[:5]:  # then it's a disk device
+            if '/dev/' in line[:5]:  # then it's a disk partition
                 line = line.split()
-                self.mounts[line[1]] = self.partitions[line[0]]
-                self.partitions[line[0]].mount_point = line[1]
+                if line[0] in self.partitions:  # ignore stale mounts
+                    self.mounts[line[1]] = self.partitions[line[0]]
+                    self.partitions[line[0]].mount_point = line[1]
 
     @staticmethod
     def check_mount_point(mount_point: str) -> None:
@@ -172,60 +184,71 @@ class PartitionTable(object):
         else:
             self.mok_mount(part, mount_point)
 
+    def find_source_disk(self) -> None:
+        """ Find out where to copy from.
 
-    def find_source_disk(self) -> Dict[str, DiskPart]:
-        """ Find out where to copy from and return a reverse lookup, sources.
+            Includes the non-universal assumption that both partitions are on
+            the same disk.
         """
 
-        sources = {}  # partitions indexed by mount_point    
         for mount in ['/', '/boot/efi']:
-            sources[mount] = self.mounts[mount]
+            self.sources[mount] = self.mounts[mount]
 
-        k = sources.keys()
-        assert len(k) == 2, 'wtf: Failed to find sources.'
-        return sources
+        assert len(self.sources) == 2, 'wtf: Failed to find sources.'
 
+    def find_dest_disk(self) -> None:
 
-def find_dest_disk(potentials: List[DiskPart]) -> Dict[str, DiskPart]:
-    # potentials = all_partitions.values()  # [DiskPart] list
-    # [DiskPart] list
-    efi_candidates: List[DiskPart] = []
+        all_parts: List[DiskPart] = [p for i, p in self.partitions.items()]
 
-    # Find available vfat partitions for EFI.
+        # Find available vfat partitions for EFI.
+        efi_candidates: List[DiskPart] = []
+        for partition in all_parts:
+            if partition.ptype == 'vfat' and (
+                    '/boot/efi' != partition.mount_point):
+                efi_candidates += [partition]
 
-    for partition in potentials:  # exclude mounted EFI
-        if partition.ptype == 'vfat' and (
-                '/boot/efi' not in [partition.mount_point]):
-            efi_candidates += [partition]
+        # The new '/' is to be put on the same disk as the new EFI.
+        install_candidates: List[Dict[str, DiskPart]] = []  # str is by mount
+        for efi_part in efi_candidates:
+            for p in all_parts:  # should be same disk as efi partition
+                if p.ptype != 'vfat' and efi_part.disk in p.dev:
+                    efi_mount = f'/mnt/{p.disk}{p.part_num}/boot/efi'
+                    root_mount = f'/mnt/{p.disk}{p.part_num}'
+                    install_candidate: Dict[str, DiskPart] = {
+                        root_mount: p,
+                        efi_mount: efi_part}
+                    install_candidates += [install_candidate]
+        if len(install_candidates) == 1:
+            self.dests = install_candidates[0]
+        elif len(install_candidates) == 0:
+            raise Exception('No install candidates found')
+        elif len(install_candidates) > 1:
+            raise Exception('TODO fix later, choose from root_candidates')
+        else:
+            raise Exception('wtf in find_dest_disk')
 
-    # The new '/' has to be put on the same disk as the new EFI.
-    root_candidates: List[DiskPart] = []
-    for efi_part in efi_candidates:
-        for p in potentials:  # should be same disk as efi partition
-            if p.ptype != 'vfat' and efi_part.disk in p.dev:
-                root_candidates += [(efi_part, partition)]
-    if len(root_candidates) == 1:
-        return {'/boot/efi': root_candidates[0][0], '/': root_candidates[0][1]}
-    elif len(root_candidates) == 0:
-        raise Exception('No install candidates found')
-    elif len(root_candidates) > 1:
-        raise Exception('TODO fix later, choose from root_candidates')
-    else:
-        raise Exception('wtf in find_dest_disk')
+    def mount_dest_disk(self):
 
+        # '/mnt/sdxx' has to be mounted before '/mnt/sdxx/boot/efi'
+        for m in ['', '/boot/efi']:  # mount root first, then EFI
+            for dest in self.dests:
+                if re.search(f'/mnt/sd[a-z][1-9]({m}$)', dest):
+                    if dest not in self.mounts:
+                        self.mount_partition(self.dests[dest].dev, dest)
 
-partition_table = PartitionTable()
 
 if __name__ == '__main__':
-    pass
-    # print('partition keys', partition_table.partitions.keys())
-    # print('mount keys', partition_table.mounts.keys())
-    # for dev in partition_table.mounts.keys():
-    #     print(partition_table.partitions[dev])
+    # quick test for most obvious case
+
+    partition_table = PartitionTable()
+    print('\n', partition_table)
+    partition_table.find_source_disk()
+    print('\nsources')
+    pprint(partition_table.sources)
+
+    partition_table.find_dest_disk()
+    print('\ndests')
+    pprint(partition_table.dests)
+
+    partition_table.mount_dest_disk()
     print(partition_table)
-    print(partition_table.find_source_disk())
-    # print(find_source_disk(part_table))
-    # source_parts = find_source_disk(partition_table)
-    # pprint(source_disk)
-    # dest_parts = partition_table.get_blkids().values()
-    # print(dest_disk)
