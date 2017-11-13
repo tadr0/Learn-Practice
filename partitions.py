@@ -14,6 +14,7 @@ import re
 # from subprocess import check_call, run
 import subprocess
 from pprint import pprint
+from collections import OrderedDict  # not really needed for CPython >= 3.6 ?
 from typing import Dict, List
 
 
@@ -89,8 +90,6 @@ class PartitionTable(object):
 
         self.sources: Dict[str, DiskPart] = {}  # by mount_point
         self.dests: Dict[str, DiskPart] = {}  # by mout_point
-        # mount point relative to new root
-        self.dests_relative: Dict[str, DiskPart] = {}
 
     def __str__(self):
         s = ['\nPartition Table:']
@@ -224,14 +223,12 @@ class PartitionTable(object):
                 if p.ptype != 'vfat' and efi_part.disk in p.dev:
                     efi_mount = f'/mnt/{p.disk}{p.part_num}/boot/efi'
                     root_mount = f'/mnt/{p.disk}{p.part_num}'
-                    install_candidate: Dict[str, DiskPart] = {
-                        root_mount: p,
-                        efi_mount: efi_part}
+                    install_candidate = OrderedDict({
+                        root_mount: p,  # mount root first, then EFI
+                        efi_mount: efi_part})
                     install_candidates += [install_candidate]
         if len(install_candidates) == 1:
             self.dests = install_candidates[0]
-            self.dests_relative['/'] = install_candidates[0][root_mount]
-            self.dests_relative['/boot/efi'] = install_candidates[0][efi_mount]
         elif len(install_candidates) == 0:
             raise Exception('No install candidates found')
         elif len(install_candidates) > 1:
@@ -240,17 +237,9 @@ class PartitionTable(object):
             raise Exception('wtf in find_dest_disk')
 
     def mount_dest_disk(self):
-
-        # '/mnt/sdxx' has to be mounted before '/mnt/sdxx/boot/efi'
-        for m in  ['/', '/boot/efi']:  # mount root first, then EFI
-            dev = self.dests_relative[m].dev
-            mnt = self.dests_relative[m].
-            self.mount_partition(dev, mnt)
-#        for m in ['', '/boot/efi']:  # mount root first, then EFI
-#            for dest in self.dests:
-#                if re.search(f'/mnt/sd[a-z][1-9]({m}$)', dest):
-#                    if dest not in self.mounts:
-#                        self.mount_partition(self.dests[dest].dev, dest)
+        for m in self.dests:
+            if m not in self.mounts:
+                self.mount_partition(self.dests[m].dev, m)
 
 
 if __name__ == '__main__':
@@ -267,8 +256,4 @@ if __name__ == '__main__':
     pprint(partition_table.dests)
 
     partition_table.mount_dest_disk()
-    print(partition_table)
-    
-    print('\nrel_mounts')
-    pprint(partition_table.dests_relative)
-
+    print(partition_table) 
