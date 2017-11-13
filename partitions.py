@@ -42,7 +42,6 @@ class DiskPart(object):
         self.ptype = ptype
         self.puuid = puuid
         self.mount_point = mount_point
-        self.fake_data = fake_data
 
     def __str__(self) -> str:
         s = ['  H']
@@ -53,45 +52,56 @@ class DiskPart(object):
         rstr = str(' '.join(s))
         return rstr
 
-#    def __repr__(self):
+#    def __repr__(self):        return_str = str('\n'.join(s))
 #        self.__str__()  # cheat
 
 
 class PartitionTable(object):
     """ Abstract Partition Table
-
-        really info about table and maybe setup for MagicMock?
     """
 
     def __init__(
             self,
-            partitions=None,
-            mounts=None) -> None:
-        """ If testing use external config else self config. """
+            partitions: Dict[str, DiskPart]=None,
+            mounts: Dict[str, DiskPart]=None) -> None:
+        """ Extract info from the OS:
 
-        # one to one mapping /dev/sd??  ->  partition
-        if not partitions:
+            partitiona and mounts passed as parameters allow:
+            o trial runs (not implemented yet).
+            o non-root testing (maybe), and
+            o testing configs not on my hardware
+        """
+
+        # one to one mapping {/dev/sd??:  partition}
+        if partitions:
+            self.partitions: Dict[str, DiskPart] = partitions
+        else:
             self.partitions: Dict[str, DiskPart] = {}  # by dev (/dev/sdxx)
             self.update_blkids()
+        for p in self.partitions:  # sanity check
+            assert '/dev/' in p, f'partition table init on partition {p}'
         # potentially many to one: 1 partition can be mounted multiple times
-        if not mounts:
+        if mounts:
+            self.mounts: Dict[str, DiskPart] = mounts
+        else:
             self.mounts: Dict[str, DiskPart] = {}  # by mount_point
             self.update_mounts()
 
         self.sources: Dict[str, DiskPart] = {}  # by mount_point
         self.dests: Dict[str, DiskPart] = {}  # by mout_point
+        # mount point relative to new root
+        self.dests_relative: Dict[str, DiskPart] = {}
 
     def __str__(self):
-        s = ['Partition Table:']
+        s = ['\nPartition Table:']
         for name, part in self.partitions.items():
             s += [part.__str__()]
-        rstr = str('\n'.join(s))
-        return rstr
+        return str('\n'.join(s))
 
 #    def __repr__(self):
 #        self.__str__()
 
-    def add_mok_partition(self):
+    def add_mock_partition(self):
         pass
 
     def update_blkids(self) -> None:
@@ -174,7 +184,7 @@ class PartitionTable(object):
         else:
             raise Exception(msg)
 
-    def mok_mount(self, part: str, mount_point: str) -> None:
+    def mock_mount(self, part: str, mount_point: str) -> None:
 
         raise Exception(f'not implemented yet {mount_point}')
 
@@ -182,7 +192,7 @@ class PartitionTable(object):
         if os.getuid() == 0:
             self._mount_partition(part, mount_point)
         else:
-            self.mok_mount(part, mount_point)
+            self.mock_mount(part, mount_point)
 
     def find_source_disk(self) -> None:
         """ Find out where to copy from.
@@ -220,6 +230,8 @@ class PartitionTable(object):
                     install_candidates += [install_candidate]
         if len(install_candidates) == 1:
             self.dests = install_candidates[0]
+            self.dests_relative['/'] = install_candidates[0][root_mount]
+            self.dests_relative['/boot/efi'] = install_candidates[0][efi_mount]
         elif len(install_candidates) == 0:
             raise Exception('No install candidates found')
         elif len(install_candidates) > 1:
@@ -230,15 +242,19 @@ class PartitionTable(object):
     def mount_dest_disk(self):
 
         # '/mnt/sdxx' has to be mounted before '/mnt/sdxx/boot/efi'
-        for m in ['', '/boot/efi']:  # mount root first, then EFI
-            for dest in self.dests:
-                if re.search(f'/mnt/sd[a-z][1-9]({m}$)', dest):
-                    if dest not in self.mounts:
-                        self.mount_partition(self.dests[dest].dev, dest)
+        for m in  ['/', '/boot/efi']:  # mount root first, then EFI
+            dev = self.dests_relative[m].dev
+            mnt = self.dests_relative[m].
+            self.mount_partition(dev, mnt)
+#        for m in ['', '/boot/efi']:  # mount root first, then EFI
+#            for dest in self.dests:
+#                if re.search(f'/mnt/sd[a-z][1-9]({m}$)', dest):
+#                    if dest not in self.mounts:
+#                        self.mount_partition(self.dests[dest].dev, dest)
 
 
 if __name__ == '__main__':
-    # quick test for most obvious case
+    # quick test for the most obvious case (for me right now)
 
     partition_table = PartitionTable()
     print('\n', partition_table)
@@ -252,3 +268,7 @@ if __name__ == '__main__':
 
     partition_table.mount_dest_disk()
     print(partition_table)
+    
+    print('\nrel_mounts')
+    pprint(partition_table.dests_relative)
+
