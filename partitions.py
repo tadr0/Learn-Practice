@@ -28,8 +28,7 @@ class DiskPart(object):
             uuid='',
             ptype='',
             puuid='',
-            mount_point='',
-            fake_data=None):
+            mount_point=''):
 
         """
 
@@ -63,8 +62,8 @@ class PartitionTable(object):
 
     def __init__(
             self,
-            partitions: Dict[str, DiskPart]=None,
-            mounts: Dict[str, DiskPart]=None) -> None:
+            partitions: Dict[str, DiskPart] = None,
+            mounts: Dict[str, DiskPart] = None) -> None:
         """ Extract info from the OS:
 
             partitiona and mounts passed as parameters allow:
@@ -74,22 +73,22 @@ class PartitionTable(object):
         """
 
         # one to one mapping {/dev/sd??:  partition}
-        if partitions:
+        if partitions:  # testing (and maybe trial run)
             self.partitions: Dict[str, DiskPart] = partitions
-        else:
+        else:  # Normal operation
             self.partitions: Dict[str, DiskPart] = {}  # by dev (/dev/sdxx)
             self.update_blkids()
-        for p in self.partitions:  # sanity check
-            assert '/dev/' in p, f'partition table init on partition {p}'
+#        for p in self.partitions:  # sanity check
+#            assert '/dev/' in p, f'partition table init on partition {p}'
         # potentially many to one: 1 partition can be mounted multiple times
-        if mounts:
+        if mounts:  # testing and trial run
             self.mounts: Dict[str, DiskPart] = mounts
         else:
             self.mounts: Dict[str, DiskPart] = {}  # by mount_point
             self.update_mounts()
 
         self.sources: Dict[str, DiskPart] = {}  # by mount_point
-        self.dests: Dict[str, DiskPart] = {}  # by mout_point
+        self.dests: OrderedDict[str, DiskPart] = {}  # by mount_point
 
     def __str__(self):
         s = ['\nPartition Table:']
@@ -140,8 +139,7 @@ class PartitionTable(object):
                     self.mounts[line[1]] = self.partitions[line[0]]
                     self.partitions[line[0]].mount_point = line[1]
 
-    @staticmethod
-    def check_mount_point(mount_point: str) -> None:
+    def check_mount_point(self, mount_point: str) -> None:
         if not os.path.isdir(mount_point):
             try:
                 os.mkdir(mount_point)
@@ -227,6 +225,7 @@ class PartitionTable(object):
                         root_mount: p,  # mount root first, then EFI
                         efi_mount: efi_part})
                     install_candidates += [install_candidate]
+        print('\ninstall_candidates\n', install_candidates)
         if len(install_candidates) == 1:
             self.dests = install_candidates[0]
         elif len(install_candidates) == 0:
@@ -256,4 +255,4 @@ if __name__ == '__main__':
     pprint(partition_table.dests)
 
     partition_table.mount_dest_disk()
-    print(partition_table) 
+    print(partition_table)
