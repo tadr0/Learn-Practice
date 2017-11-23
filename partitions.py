@@ -60,32 +60,22 @@ class PartitionTable(object):
     """ Abstract Partition Table
     """
 
-    def __init__(
-            self,
-            partitions: Dict[str, DiskPart] = None,
-            mounts: Dict[str, DiskPart] = None) -> None:
+    def __init__(self) -> None:
         """ Extract info from the OS:
 
-            partitiona and mounts passed as parameters allow:
-            o trial runs (not implemented yet).
-            o non-root testing (maybe), and
-            o testing configs not on my hardware
         """
 
         # one to one mapping {/dev/sd??:  partition}
-        if partitions:  # testing (and maybe trial run)
-            self.partitions: Dict[str, DiskPart] = partitions
-        else:  # Normal operation
-            self.partitions: Dict[str, DiskPart] = {}  # by dev (/dev/sdxx)
-            self.update_blkids()
-#        for p in self.partitions:  # sanity check
-#            assert '/dev/' in p, f'partition table init on partition {p}'
+        self.partitions: OrderedDict[str, DiskPart] = {}  # by /dev/sd??
+        self.update_blkids()
+        for p in self.partitions:  # sanity check
+            assert '/dev/' in p, f'partition table init on partition {p}'
+
         # potentially many to one: 1 partition can be mounted multiple times
-        if mounts:  # testing and trial run
-            self.mounts: Dict[str, DiskPart] = mounts
-        else:
-            self.mounts: Dict[str, DiskPart] = {}  # by mount_point
-            self.update_mounts()
+        self.mounts: OrderedDict[str, DiskPart] = {}  # by mount_point
+        self.update_mounts()
+        assert '/' in self.mounts
+        assert '/boot/efi' in self.mounts
 
         self.sources: Dict[str, DiskPart] = {}  # by mount_point
         self.dests: OrderedDict[str, DiskPart] = {}  # by mount_point
@@ -132,17 +122,24 @@ class PartitionTable(object):
         """ filter mounted for disks """
         with open('/proc/mounts') as f:
             lines = f.readlines()
-        for line in lines:
+        for line in lines:  # things we might want to add
             if '/dev/' in line[:5]:  # then it's a disk partition
                 line = line.split()
-                if line[0] in self.partitions:  # ignore stale mounts
+                if line[0] in self.partitions:  # ignore stale usb devices
                     self.mounts[line[1]] = self.partitions[line[0]]
                     self.partitions[line[0]].mount_point = line[1]
+        removes = []  # don't delete while iterating
+        for m in self.mounts:  # things we might want to be remove
+            if m not in [line.split()[1] for line in lines]:
+                removes += [m]
+        for m in removes:
+            del self.mounts[m]
 
     def check_mount_point(self, mount_point: str) -> None:
+        # print('cmp: mount_point =', mount_point)
         if not os.path.isdir(mount_point):
             try:
-                os.mkdir(mount_point)
+                os.makedirs(mount_point)
             except OSError as e:
                 if e.errno == errno.EEXIST:  # seems impossible
                     pass
@@ -166,26 +163,29 @@ class PartitionTable(object):
 
         self.check_mount_point(mount_point)
 
-        # mounted allready ?
+        doit = None   # mounted allready ?
         cmd = ['/bin/mount', part, mount_point]
         msg = f'wtf mounting partition {part} at {mount_point}'
-        if (part not in self.mounts) or (
-                self.mounts[part] != mount_point):
-            error_ret = subprocess.check_call(cmd)
-            if error_ret:
-                raise Exception(msg)
-            self.mounts[part] = mount_point
-            self.partitions[part].mount_point = mount_point
-        if self.mounts[part] == mount_point:
-            pass  # allready mounted
+        if mount_point in self.mounts:
+            if self.mounts[mount_point] is not self.partitions[part]:
+                doit = cmd   # remount
+        elif part not in [p.dev for p in self.mounts.values()]:
+            doit = cmd
         else:
             raise Exception(msg)
+        if doit:
+            error_ret = subprocess.check_call(doit)
+            if error_ret:
+                raise Exception(msg)
+            self.mounts[mount_point] = self.partitions[part]
+            self.partitions[part].mount_point = mount_point
 
     def mock_mount(self, part: str, mount_point: str) -> None:
 
         raise Exception(f'not implemented yet {mount_point}')
 
     def mount_partition(self, part: str, mount_point: str) -> None:
+        # print('mp:', part, mount_point)
         if os.getuid() == 0:
             self._mount_partition(part, mount_point)
         else:
@@ -210,8 +210,9 @@ class PartitionTable(object):
         # Find available vfat partitions for EFI.
         efi_candidates: List[DiskPart] = []
         for partition in all_parts:
+            # print('find_dest_disk:', partition.dev, partition.mount_point)
             if partition.ptype == 'vfat' and (
-                    '/boot/efi' != partition.mount_point):
+                    partition.mount_point != '/boot/efi'):
                 efi_candidates += [partition]
 
         # The new '/' is to be put on the same disk as the new EFI.
@@ -225,7 +226,7 @@ class PartitionTable(object):
                         root_mount: p,  # mount root first, then EFI
                         efi_mount: efi_part})
                     install_candidates += [install_candidate]
-        print('\ninstall_candidates\n', install_candidates)
+        # print('\ninstall_candidates\n', install_candidates)
         if len(install_candidates) == 1:
             self.dests = install_candidates[0]
         elif len(install_candidates) == 0:
@@ -236,7 +237,8 @@ class PartitionTable(object):
             raise Exception('wtf in find_dest_disk')
 
     def mount_dest_disk(self):
-        for m in self.dests:
+        for m, p in self.dests.items():
+            # print('mdd: mount', p.dev, m)
             if m not in self.mounts:
                 self.mount_partition(self.dests[m].dev, m)
 
